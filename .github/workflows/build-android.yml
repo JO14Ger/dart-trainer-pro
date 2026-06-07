@@ -57,25 +57,41 @@ jobs:
       - name: Init Android project
         run: npx tauri android init
 
-      - name: Build Android APK
-        run: npx tauri android build --apk
+      - name: Build Android APK (Debug -- mit Debug-Keystore signiert, installierbar)
+        run: npx tauri android build --apk --debug
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_ROOT }}
 
-      - name: Upload APK as artifact
+      - name: Build Android APK (Release -- unsigniert, fuer eigenes Signing)
+        run: npx tauri android build --apk
+        continue-on-error: true
+        env:
+          NDK_HOME: ${{ env.NDK_HOME }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_ROOT }}
+
+      - name: Liste APKs (Diagnose)
+        if: always()
+        run: |
+          echo "=== Gefundene APKs ==="
+          find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec ls -lh {} \;
+
+      - name: Upload APKs als Artifact
         uses: actions/upload-artifact@v4
         with:
           name: dart-trainer-pro-android-${{ github.ref_name }}
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
 
-      - name: Attach APK to Release
+      - name: APKs an Release haengen
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           draft: true
           tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
