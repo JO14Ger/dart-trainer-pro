@@ -1,0 +1,44 @@
+# ── Node / Frontend ──
+node_modules/
+dist/
+.vite/
+*.log
+npm-debug.log*
+
+# ── Rust / Tauri ──
+# Cargo-Workspace legt target/ ins Root, ohne Workspace nach src-tauri/target
+target/
+src-tauri/target/
+**/target/
+# Debug/Linker-Artefakte sicherheitshalber raus
+*.pdb
+*.rlib
+*.rmeta
+*.dll.exp
+*.lib
+
+# ── Tauri Mobile ──
+src-tauri/gen/
+.tauri/
+
+# ── Installer-Output ──
+*-setup.exe
+*.msi
+*.AppImage
+*.deb
+*.dmg
+*.apk
+
+# ── IDE / OS ──
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Env / Secrets ──
+.env
+.env.local
+.env.*.local
