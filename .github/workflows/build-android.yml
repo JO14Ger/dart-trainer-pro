@@ -36,9 +36,10 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android NDK
+      - name: Install Android NDK + Build-Tools
         run: |
           sdkmanager --install "ndk;27.0.12077973"
+          sdkmanager --install "build-tools;34.0.0"
           echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
           echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
@@ -57,39 +58,82 @@ jobs:
       - name: Init Android project
         run: npx tauri android init
 
-      - name: Build Android APK (Debug -- mit Debug-Keystore signiert, installierbar)
-        run: npx tauri android build --apk --debug
-        env:
-          NDK_HOME: ${{ env.NDK_HOME }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_ROOT }}
+      - name: Generiere Auto-Signing-Keystore
+        run: |
+          keytool -genkey -v \
+            -keystore release.jks \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias upload \
+            -storepass darttrainer123 -keypass darttrainer123 \
+            -dname "CN=DartTrainer Pro, OU=Local, O=DartTrainerPro, L=Local, S=Local, C=DE"
+          echo "KEYSTORE=$(pwd)/release.jks" >> $GITHUB_ENV
 
-      - name: Build Android APK (Release -- unsigniert, fuer eigenes Signing)
+      - name: Build Android APK (Release - klein, unsigniert)
         run: npx tauri android build --apk
-        continue-on-error: true
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
           ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_ROOT }}
 
-      - name: Liste APKs (Diagnose)
+      - name: APK signieren (apksigner)
+        run: |
+          # Pfad zu apksigner finden
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)
+          APKSIGNER="${BUILD_TOOLS}apksigner"
+          ZIPALIGN="${BUILD_TOOLS}zipalign"
+          echo "Build-Tools: $BUILD_TOOLS"
+          ls -la "$BUILD_TOOLS"
+
+          # Alle unsignierten Release-APKs finden und signieren
+          OUT_DIR="src-tauri/gen/android/app/build/outputs/apk"
+          mkdir -p signed
+          for UNSIGNED in $(find "$OUT_DIR" -name "*-unsigned.apk"); do
+            echo "=== Verarbeite: $UNSIGNED ==="
+            BASE=$(basename "$UNSIGNED" .apk)
+            ALIGNED="signed/${BASE%-unsigned}-aligned.apk"
+            SIGNED="signed/${BASE%-unsigned}.apk"
+
+            # zipalign (Pflicht vor signieren)
+            "$ZIPALIGN" -v -p 4 "$UNSIGNED" "$ALIGNED"
+
+            # signieren
+            "$APKSIGNER" sign \
+              --ks "$KEYSTORE" \
+              --ks-pass "pass:darttrainer123" \
+              --key-pass "pass:darttrainer123" \
+              --ks-key-alias upload \
+              --out "$SIGNED" \
+              "$ALIGNED"
+
+            # verifizieren
+            "$APKSIGNER" verify "$SIGNED" && echo "✓ Signatur OK: $SIGNED"
+            rm "$ALIGNED"
+          done
+
+          echo "=== Signierte APKs ==="
+          ls -lh signed/
+
+      - name: Liste alle Outputs (Diagnose)
         if: always()
         run: |
-          echo "=== Gefundene APKs ==="
+          echo "=== Original APKs ==="
           find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -exec ls -lh {} \;
+          echo ""
+          echo "=== Signierte APKs ==="
+          ls -lh signed/ 2>/dev/null || echo "Keine signierten APKs"
 
-      - name: Upload APKs als Artifact
+      - name: Upload signierte APKs als Artifact
         uses: actions/upload-artifact@v4
         with:
           name: dart-trainer-pro-android-${{ github.ref_name }}
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: signed/*.apk
           if-no-files-found: warn
 
-      - name: APKs an Release haengen
+      - name: Signierte APKs an Release haengen
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          files: signed/*.apk
           draft: true
           tag_name: ${{ github.ref_name }}
           fail_on_unmatched_files: false
